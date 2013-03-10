@@ -19,7 +19,7 @@ func TestStart(t *testing.T) {
 		"start_test",
 		"ls",
 		[]string{"-al"},
-		[]string{testLayerPath},
+		GetTestImage(docker),
 		&Config{
 			Ram: 33554432,
 		},
@@ -55,7 +55,7 @@ func TestRun(t *testing.T) {
 		"run_test",
 		"ls",
 		[]string{"-al"},
-		[]string{testLayerPath},
+		GetTestImage(docker),
 		&Config{
 			Ram: 33554432,
 		},
@@ -85,7 +85,7 @@ func TestOutput(t *testing.T) {
 		"output_test",
 		"echo",
 		[]string{"-n", "foobar"},
-		[]string{testLayerPath},
+		GetTestImage(docker),
 		&Config{},
 	)
 	if err != nil {
@@ -110,7 +110,7 @@ func TestKill(t *testing.T) {
 		"stop_test",
 		"cat",
 		[]string{"/dev/zero"},
-		[]string{testLayerPath},
+		GetTestImage(docker),
 		&Config{},
 	)
 	if err != nil {
@@ -153,7 +153,7 @@ func TestExitCode(t *testing.T) {
 		"exit_test_1",
 		"/bin/true",
 		[]string{""},
-		[]string{testLayerPath},
+		GetTestImage(docker),
 		&Config{},
 	)
 	if err != nil {
@@ -168,7 +168,7 @@ func TestExitCode(t *testing.T) {
 		"exit_test_2",
 		"/bin/false",
 		[]string{""},
-		[]string{testLayerPath},
+		GetTestImage(docker),
 		&Config{},
 	)
 	if err != nil {
@@ -197,7 +197,7 @@ func TestRestart(t *testing.T) {
 		"restart_test",
 		"echo",
 		[]string{"-n", "foobar"},
-		[]string{testLayerPath},
+		GetTestImage(docker),
 		&Config{},
 	)
 	if err != nil {
@@ -231,7 +231,7 @@ func TestRestartStdin(t *testing.T) {
 		"restart_stdin_test",
 		"cat",
 		[]string{},
-		[]string{testLayerPath},
+		GetTestImage(docker),
 		&Config{
 			OpenStdin: true,
 		},
@@ -282,7 +282,7 @@ func TestUser(t *testing.T) {
 		"user_default",
 		"id",
 		[]string{},
-		[]string{testLayerPath},
+		GetTestImage(docker),
 		&Config{},
 	)
 	if err != nil {
@@ -302,7 +302,7 @@ func TestUser(t *testing.T) {
 		"user_root",
 		"id",
 		[]string{},
-		[]string{testLayerPath},
+		GetTestImage(docker),
 		&Config{
 			User: "root",
 		},
@@ -324,7 +324,7 @@ func TestUser(t *testing.T) {
 		"user_uid0",
 		"id",
 		[]string{},
-		[]string{testLayerPath},
+		GetTestImage(docker),
 		&Config{
 			User: "0",
 		},
@@ -344,9 +344,9 @@ func TestUser(t *testing.T) {
 	// Set a different user by uid
 	container, err = docker.Create(
 		"user_uid1",
-		"id",
+		"/usr/bin/id",
 		[]string{},
-		[]string{testLayerPath},
+		GetTestImage(docker),
 		&Config{
 			User: "1",
 		},
@@ -356,8 +356,10 @@ func TestUser(t *testing.T) {
 	}
 	defer docker.Destroy(container)
 	output, err = container.Output()
-	if err != nil || container.State.ExitCode != 0 {
+	if err != nil {
 		t.Fatal(err)
+	} else if container.State.ExitCode != 0 {
+		t.Fatalf("Container exit code is invalid: %d\nOutput:\n%s\n", container.State.ExitCode, output)
 	}
 	if !strings.Contains(string(output), "uid=1(daemon) gid=1(daemon)") {
 		t.Error(string(output))
@@ -366,9 +368,9 @@ func TestUser(t *testing.T) {
 	// Set a different user by username
 	container, err = docker.Create(
 		"user_daemon",
-		"id",
+		"/usr/bin/id",
 		[]string{},
-		[]string{testLayerPath},
+		GetTestImage(docker),
 		&Config{
 			User: "daemon",
 		},
@@ -396,7 +398,7 @@ func TestMultipleContainers(t *testing.T) {
 		"container1",
 		"cat",
 		[]string{"/dev/zero"},
-		[]string{testLayerPath},
+		GetTestImage(docker),
 		&Config{},
 	)
 	if err != nil {
@@ -408,7 +410,7 @@ func TestMultipleContainers(t *testing.T) {
 		"container2",
 		"cat",
 		[]string{"/dev/zero"},
-		[]string{testLayerPath},
+		GetTestImage(docker),
 		&Config{},
 	)
 	if err != nil {
@@ -451,7 +453,7 @@ func TestStdin(t *testing.T) {
 		"stdin_test",
 		"cat",
 		[]string{},
-		[]string{testLayerPath},
+		GetTestImage(docker),
 		&Config{
 			OpenStdin: true,
 		},
@@ -486,7 +488,7 @@ func TestTty(t *testing.T) {
 		"tty_test",
 		"cat",
 		[]string{},
-		[]string{testLayerPath},
+		GetTestImage(docker),
 		&Config{
 			OpenStdin: true,
 		},
@@ -571,7 +573,7 @@ func BenchmarkRunSequencial(b *testing.B) {
 			fmt.Sprintf("bench_%v", i),
 			"echo",
 			[]string{"-n", "foo"},
-			[]string{testLayerPath},
+			GetTestImage(docker),
 			&Config{},
 		)
 		if err != nil {
@@ -607,7 +609,7 @@ func BenchmarkRunParallel(b *testing.B) {
 				fmt.Sprintf("bench_%v", i),
 				"echo",
 				[]string{"-n", "foo"},
-				[]string{testLayerPath},
+				GetTestImage(docker),
 				&Config{},
 			)
 			if err != nil {

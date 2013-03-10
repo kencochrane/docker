@@ -1,4 +1,4 @@
-package image
+package fs
 
 import (
 	"errors"
