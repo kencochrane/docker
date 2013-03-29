@@ -438,6 +438,8 @@ func (srv *Server) CmdPush(stdin io.ReadCloser, stdout io.Writer, args ...string
 		remote = local
 	}
 
+	fmt.Fprintf(stdout, "\nStarting Push for image %s\n", local)
+
 	Debugf("Pushing [%s] to [%s]\n", local, remote)
 
 	// Try to get the image

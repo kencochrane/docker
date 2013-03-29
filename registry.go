@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"time"
 )
 
 //FIXME: Set the endpoint in a conf file or via commandline
@@ -210,89 +211,129 @@ func (graph *Graph) PullRepository(stdout io.Writer, remote, askedTag string, re
 	return nil
 }
 
+func (graph *Graph) pushImage(stdout io.Writer, img *Image, authConfig *auth.AuthConfig, imgCount int, imgTotal int) (bool, error) {
+	client := &http.Client{}
+	jsonRaw, err := ioutil.ReadFile(path.Join(graph.Root, img.Id, "json"))
+	if err != nil {
+		return false, fmt.Errorf("Error while retreiving the path for {%s}: %s", img.Id, err)
+	}
+
+	fmt.Fprintf(stdout, "\t[%d/%d] Pushing metadata for %s \n", imgCount, imgTotal, img.Id)
+
+	// FIXME: try json with UTF8
+	jsonData := strings.NewReader(string(jsonRaw))
+	req, err := http.NewRequest("PUT", REGISTRY_ENDPOINT+"/images/"+img.Id+"/json", jsonData)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Add("Content-type", "application/json")
+	req.SetBasicAuth(authConfig.Username, authConfig.Password)
+	res, err := client.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("Failed to upload metadata: %s", err)
+	}
+	if res.StatusCode != 200 {
+		switch res.StatusCode {
+		case 204:
+			// Case where the image is already on the Registry
+			// FIXME: Do not be silent?
+			fmt.Fprintf(stdout, "\t[%d/%d] %s is already uploaded. Skipping\n", imgCount, imgTotal, img.Id)
+			return false, nil
+		default:
+			errBody, err := ioutil.ReadAll(res.Body)
+			if err != nil {
+				errBody = []byte(err.Error())
+			}
+			return false, fmt.Errorf("HTTP code %d while uploading metadata: %s", res.StatusCode, errBody)
+		}
+	}
+
+	fmt.Fprintf(stdout, "\t[%d/%d] Pushing fs layer for %s \n", imgCount, imgTotal, img.Id)
+	req2, err := http.NewRequest("PUT", REGISTRY_ENDPOINT+"/images/"+img.Id+"/layer", nil)
+	req2.SetBasicAuth(authConfig.Username, authConfig.Password)
+	res2, err := client.Do(req2)
+	if err != nil || res2.StatusCode != 307 {
+		return false, fmt.Errorf("Registry returned error: %s", err)
+	}
+	url, err := res2.Location()
+	if err != nil || url == nil {
+		return false, fmt.Errorf("Failed to retrieve layer upload location: %s", err)
+	}
+
+	// FIXME: Don't do this :D. Check the S3 requierement and implement chunks of 5MB
+	// FIXME2: I won't stress it enough, DON'T DO THIS! very high priority
+	layerData2, err := Tar(path.Join(graph.Root, img.Id, "layer"), Gzip)
+	layerData, err := Tar(path.Join(graph.Root, img.Id, "layer"), Gzip)
+	if err != nil {
+		return false, fmt.Errorf("Failed to generate layer archive: %s", err)
+	}
+	req3, err := http.NewRequest("PUT", url.String(), layerData)
+	if err != nil {
+		return false, err
+	}
+	tmp, err := ioutil.ReadAll(layerData2)
+	if err != nil {
+		return false, err
+	}
+	req3.ContentLength = int64(len(tmp))
+
+	req3.TransferEncoding = []string{"none"}
+	res3, err := client.Do(req3)
+	if err != nil {
+		return false, fmt.Errorf("Failed to upload layer: %s", err)
+	}
+	if res3.StatusCode != 200 {
+		return false, fmt.Errorf("Received HTTP code %d while uploading layer", res3.StatusCode)
+	}
+	return true, nil
+}
+
+// reverse //TODO: make generic put in utils?
+func reverseImageList(images []*Image) error {
+	for i, j := 0, len(images)-1; i < j; i, j = i+1, j-1 {
+		images[i], images[j] = images[j], images[i]
+	}
+	return nil
+}
+
 // Push a local image to the registry with its history if needed
 func (graph *Graph) PushImage(stdout io.Writer, imgOrig *Image, authConfig *auth.AuthConfig) error {
-	client := &http.Client{}
 
 	// FIXME: Factorize the code
 	// FIXME: Do the puts in goroutines
-	if err := imgOrig.WalkHistory(func(img *Image) error {
-
-		jsonRaw, err := ioutil.ReadFile(path.Join(graph.Root, img.Id, "json"))
-		if err != nil {
-			return fmt.Errorf("Error while retreiving the path for {%s}: %s", img.Id, err)
-		}
-
-		fmt.Fprintf(stdout, "Pushing %s metadata\n", img.Id)
-
-		// FIXME: try json with UTF8
-		jsonData := strings.NewReader(string(jsonRaw))
-		req, err := http.NewRequest("PUT", REGISTRY_ENDPOINT+"/images/"+img.Id+"/json", jsonData)
-		if err != nil {
-			return err
-		}
-		req.Header.Add("Content-type", "application/json")
-		req.SetBasicAuth(authConfig.Username, authConfig.Password)
-		res, err := client.Do(req)
-		if err != nil {
-			return fmt.Errorf("Failed to upload metadata: %s", err)
-		}
-		if res.StatusCode != 200 {
-			switch res.StatusCode {
-			case 204:
-				// Case where the image is already on the Registry
-				// FIXME: Do not be silent?
-				return nil
-			default:
-				errBody, err := ioutil.ReadAll(res.Body)
-				if err != nil {
-					errBody = []byte(err.Error())
-				}
-				return fmt.Errorf("HTTP code %d while uploading metadata: %s", res.StatusCode, errBody)
-			}
-		}
-
-		fmt.Fprintf(stdout, "Pushing %s fs layer\n", img.Id)
-		req2, err := http.NewRequest("PUT", REGISTRY_ENDPOINT+"/images/"+img.Id+"/layer", nil)
-		req2.SetBasicAuth(authConfig.Username, authConfig.Password)
-		res2, err := client.Do(req2)
-		if err != nil || res2.StatusCode != 307 {
-			return fmt.Errorf("Registry returned error: %s", err)
-		}
-		url, err := res2.Location()
-		if err != nil || url == nil {
-			return fmt.Errorf("Failed to retrieve layer upload location: %s", err)
-		}
-
-		// FIXME: Don't do this :D. Check the S3 requierement and implement chunks of 5MB
-		// FIXME2: I won't stress it enough, DON'T DO THIS! very high priority
-		layerData2, err := Tar(path.Join(graph.Root, img.Id, "layer"), Gzip)
-		layerData, err := Tar(path.Join(graph.Root, img.Id, "layer"), Gzip)
-		if err != nil {
-			return fmt.Errorf("Failed to generate layer archive: %s", err)
-		}
-		req3, err := http.NewRequest("PUT", url.String(), layerData)
-		if err != nil {
-			return err
-		}
-		tmp, err := ioutil.ReadAll(layerData2)
-		if err != nil {
-			return err
-		}
-		req3.ContentLength = int64(len(tmp))
-
-		req3.TransferEncoding = []string{"none"}
-		res3, err := client.Do(req3)
-		if err != nil {
-			return fmt.Errorf("Failed to upload layer: %s", err)
-		}
-		if res3.StatusCode != 200 {
-			return fmt.Errorf("Received HTTP code %d while uploading layer", res3.StatusCode)
-		}
-		return nil
-	}); err != nil {
+	startTime := time.Now()
+	images, err := imgOrig.History()
+	numImages := len(images)
+	fmt.Fprintf(stdout, "Total images to push: %d\n", numImages)
+	fmt.Fprintf(stdout, "---------------------------------\n")
+	fmt.Fprintf(stdout, "Image Push log:\n")
+	err = reverseImageList(images)
+	if err != nil {
 		return err
 	}
+
+	var numImagesSkipped = 0
+	var numImagesPushed = 0
+
+	for index, img := range images {
+		pushed, err := graph.pushImage(stdout, img, authConfig, index+1, numImages)
+		if err != nil {
+			return err
+		}
+		if pushed {
+			numImagesPushed += 1
+		} else {
+			numImagesSkipped += 1
+		}
+	}
+	elapsed := HumanDuration(time.Since(startTime))
+
+	fmt.Fprintf(stdout, "---------------------------------\n")
+	fmt.Fprintf(stdout, "Push Summary:\n")
+	fmt.Fprintf(stdout, "\tImages Skipped  : %d \n", numImagesSkipped)
+	fmt.Fprintf(stdout, "\tImages Pushed   : %d \n", numImagesPushed)
+	fmt.Fprintf(stdout, "\tPush Time       : %s \n", elapsed)
+	fmt.Fprintf(stdout, "---------------------------------\n")
 	return nil
 }
 
@@ -359,6 +400,7 @@ func (graph *Graph) pushPrimitive(stdout io.Writer, remote, tag, imgId string, a
 	if err = graph.PushImage(stdout, img, authConfig); err != nil {
 		return err
 	}
+
 	fmt.Fprintf(stdout, "Registering tag %s:%s\n", remote, tag)
 	// And then the tag
 	if err = graph.pushTag(remote, imgId, tag, authConfig); err != nil {
