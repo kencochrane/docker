@@ -87,6 +87,7 @@ set -e
 		cat > "$DEST/$version/Dockerfile.build" <<-EOF
 			FROM $image
 			COPY . /go
+			RUN ln -sfv /go/src/github.com/docker/docker /usr/src/${rpmName}
 		EOF
 
 		# add runc and containerd compile and install
@@ -104,12 +105,12 @@ set -e
 			RUN mkdir -p /root/rpmbuild/SOURCES \
 				&& echo '%_topdir /root/rpmbuild' > /root/.rpmmacros
 			WORKDIR /root/rpmbuild
-			RUN ln -sfv /go/src/github.com/docker/docker/hack/make/.build-rpm SPECS
+			RUN ln -sfv /usr/src/${rpmName}/hack/make/.build-rpm SPECS
 			WORKDIR /root/rpmbuild/SPECS
 			RUN tar -cz -C /go/src/github.com/docker -f /root/rpmbuild/SOURCES/containerd.tar.gz containerd
 			RUN tar -cz -C /go/src/github.com/opencontainers -f /root/rpmbuild/SOURCES/runc.tar.gz runc
-			RUN tar -cz -C /go/src/github.com/docker -f /root/rpmbuild/SOURCES/${rpmName}.tar.gz docker
-			RUN { cat /go/src/github.com/docker/docker/contrib/builder/rpm/${PACKAGE_ARCH}/changelog; } >> ${rpmName}.spec && tail >&2 ${rpmName}.spec
+			RUN tar -cz -C /usr/src -f /root/rpmbuild/SOURCES/${rpmName}.tar.gz ${rpmName}
+			RUN { cat /usr/src/${rpmName}/contrib/builder/rpm/${PACKAGE_ARCH}/changelog; } >> ${rpmName}.spec && tail >&2 ${rpmName}.spec
 			RUN rpmbuild -ba \
 				--define '_gitcommit $DOCKER_GITCOMMIT' \
 				--define '_release $rpmRelease' \
@@ -122,7 +123,7 @@ set -e
 		# of centos or rhel, which we don't support anyways
 		if [ "${suite%.*}" -gt 6 ] && [[ "$version" != opensuse* ]]; then
 			cat >> "$DEST/$version/Dockerfile.build" <<-EOF
-				RUN tar -cz -C /go/src/github.com/docker/docker/contrib -f /root/rpmbuild/SOURCES/${rpmName}-selinux.tar.gz ${rpmName}-selinux
+				RUN tar -cz -C /usr/src/${rpmName}/contrib -f /root/rpmbuild/SOURCES/${rpmName}-selinux.tar.gz ${rpmName}-selinux
 				RUN rpmbuild -ba \
 						--define '_gitcommit $DOCKER_GITCOMMIT' \
 						--define '_release $rpmRelease' \
