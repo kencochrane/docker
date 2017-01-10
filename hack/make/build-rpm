@@ -14,6 +14,10 @@ set -e
 	rpmVersion="$VERSION"
 	rpmRelease=1
 
+	rpmCeName=docker-ce
+	rpmCeVersion="$VERSION_CE"
+	rpmCeRelease=1
+
 	# rpmRelease versioning is as follows
 	# Docker 1.7.0:  version=1.7.0, release=1
 	# Docker 1.7.0-rc1: version=1.7.0, release=0.1.rc1
@@ -26,6 +30,13 @@ set -e
 		rcVersion=${rpmVersion#*-rc}
 		rpmVersion=${rpmVersion%-rc*}
 		rpmRelease="0.${rcVersion}.rc${rcVersion}"
+	fi
+
+	# if we have a "-rc*" suffix, set appropriate release
+	if [[ "$rpmCeVersion" =~ .*-rc[0-9]+$ ]] ; then
+		rcCeVersion=${rpmCeVersion#*-rc}
+		rpmCeVersion=${rpmCeVersion%-rc*}
+		rpmCeRelease="0.${rcCeVersion}.rc${rcCeVersion}"
 	fi
 
 	DOCKER_GITCOMMIT=$(git rev-parse --short HEAD)
@@ -42,10 +53,14 @@ set -e
 		# gitVersion is now something like '20150128.112847.17e840a'
 		rpmVersion="${rpmVersion%-dev}"
 		rpmRelease="0.0.$gitVersion"
+
+		rpmCeVersion="${rpmCeVersion%-dev}"
+		rpmCeRelease="0.0.$gitVersion"
 	fi
 
 	# Replace any other dashes with periods
 	rpmVersion="${rpmVersion/-/.}"
+	rpmCeVersion="${rpmCeVersion/-/.}"
 
 	rpmPackager="$(awk -F ': ' '$1 == "Packager" { print $2; exit }' hack/make/.build-rpm/${rpmName}.spec)"
 	rpmDate="$(date +'%a %b %d %Y')"
@@ -120,6 +135,11 @@ set -e
 				--define '_origversion $VERSION' \
 				--define '_experimental ${DOCKER_EXPERIMENTAL:-0}' \
 				${rpmName}.spec
+			RUN rpmbuild -ba \
+				--define '_ce_release $rpmCeRelease' \
+				--define '_ce_version $rpmCeVersion' \
+				--define '_engine_requires "$rpmName = $rpmVersion"' \
+				${rpmCeName}.spec
 		EOF
 		# selinux policy referencing systemd things won't work on non-systemd versions
 		# of centos or rhel, which we don't support anyways
@@ -136,6 +156,11 @@ set -e
 						--define '_version $rpmVersion' \
 						--define '_origversion $VERSION' \
 						${rpmName}-selinux.spec
+				RUN rpmbuild -ba \
+					--define '_ce_release $rpmCeRelease' \
+					--define '_ce_version $rpmCeVersion' \
+					--define '_engine_requires "$rpmName-selinux = $rpmVersion"' \
+					${rpmCeName}-selinux.spec
 			EOF
 		fi
 		tempImage="docker-temp/build-rpm:$version"
