@@ -1,6 +1,6 @@
 Name: docker-ce
-Version: %{_ce_version}
-Release: %{_ce_release}%{?dist}
+Version: %{_version}
+Release: %{_release}%{?dist}
 Summary: The open-source application container engine
 Group: Tools/Docker
 License: ASL 2.0
@@ -20,6 +20,8 @@ everything in between - and they don't require you to use a particular
 language, framework or packaging system. That makes them great building blocks
 for deploying and scaling web apps, databases, and backend services without
 depending on a particular stack or provider.
+
+%files
 
 %changelog
 # TODO Add changelog same as engine?

@@ -136,9 +136,9 @@ set -e
 				--define '_experimental ${DOCKER_EXPERIMENTAL:-0}' \
 				${rpmName}.spec
 			RUN rpmbuild -ba \
-				--define '_ce_release $rpmCeRelease' \
-				--define '_ce_version $rpmCeVersion' \
-				--define '_engine_requires "$rpmName = $rpmVersion"' \
+				--define '_release $rpmCeRelease' \
+				--define '_version $rpmCeVersion' \
+				--define '_engine_requires $rpmName = $rpmVersion' \
 				${rpmCeName}.spec
 		EOF
 		# selinux policy referencing systemd things won't work on non-systemd versions
@@ -156,11 +156,6 @@ set -e
 						--define '_version $rpmVersion' \
 						--define '_origversion $VERSION' \
 						${rpmName}-selinux.spec
-				RUN rpmbuild -ba \
-					--define '_ce_release $rpmCeRelease' \
-					--define '_ce_version $rpmCeVersion' \
-					--define '_engine_requires "$rpmName-selinux = $rpmVersion"' \
-					${rpmCeName}-selinux.spec
 			EOF
 		fi
 		tempImage="docker-temp/build-rpm:$version"
